@@ -83,9 +83,10 @@ export function initUI(): void {
   controlsCard.style.lineHeight = "1.35";
   controlsCard.style.boxShadow = "0 2px 10px rgba(0,0,0,0.1)";
   controlsCard.style.pointerEvents = "auto";
-  controlsCard.style.display = "none";
+  controlsCard.style.display = "block";
+  controlsVisible = true;
   controlsCard.innerHTML =
-    "W/S: Accelerate/Brake<br/>A/D: Turn<br/>Space: Jump<br/>Shift: Push<br/>Q/E: Tricks";
+    "W/S: Accelerate / Brake<br/>A/D: Turn<br/>Shift: Push<br/>Space: Jump / Pop<br/>Q/E: Grab / Spin<br/>F: Kickflip<br/>Grind: Approach rail and land on it";
   root.appendChild(controlsCard);
 
   window.addEventListener("keydown", (e) => {

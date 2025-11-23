@@ -102,7 +102,13 @@ export function buildPark(scene: Scene): { root: TransformNode; shadowCasters: M
   rail1.material = railMat;
   rail1.receiveShadows = true;
   rail1.setParent(root);
-  (rail1 as any).metadata = { isGround: true };
+  (rail1 as any).metadata = {
+    isGround: true,
+    isRail: true,
+    start: new Vector3(0, 0.45, -13),
+    end: new Vector3(0, 0.45, -7),
+    radius: 0.06
+  };
 
   const rail2 = MeshBuilder.CreateCylinder("rail2", { diameter: 0.12, height: 8, tessellation: 12 }, scene);
   rail2.position.set(-6, 0.5, 10);
@@ -110,7 +116,13 @@ export function buildPark(scene: Scene): { root: TransformNode; shadowCasters: M
   rail2.material = railMat;
   rail2.receiveShadows = true;
   rail2.setParent(root);
-  (rail2 as any).metadata = { isGround: true };
+  (rail2 as any).metadata = {
+    isGround: true,
+    isRail: true,
+    start: new Vector3(-6, 0.5, 6),
+    end: new Vector3(-6, 0.5, 14),
+    radius: 0.06
+  };
 
   // Simple buildings
   const buildingColors = [

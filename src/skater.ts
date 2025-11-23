@@ -17,6 +17,7 @@ type InputState = {
   push: boolean;   // Shift
   trickSpin: boolean; // E
   trickGrab: boolean; // Q
+  trickFlip: boolean; // F
 };
 
 export class SkaterController {
@@ -39,11 +40,22 @@ export class SkaterController {
   private readonly FOOT_EPS = 0.07;
 
   private input: InputState = {
-    forward: false, backward: false, left: false, right: false, jump: false, push: false, trickSpin: false, trickGrab: false
+    forward: false, backward: false, left: false, right: false, jump: false, push: false, trickSpin: false, trickGrab: false, trickFlip: false
   };
 
   private trickSpinTime = 0;
   private trickGrabTime = 0;
+  private trickFlipTime = 0;
+  private isFlipping = false;
+
+  // Grind state
+  private isGrinding = false;
+  private grindStart = new Vector3();
+  private grindEnd = new Vector3();
+  private grindDir = new Vector3(0, 0, 1);
+  private grindLen = 1;
+  private grindT = 0.5;
+  private railHeight = 0.5;
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -65,6 +77,7 @@ export class SkaterController {
         case "ShiftRight": this.input.push = true; break;
         case "KeyE": this.input.trickSpin = true; break;
         case "KeyQ": this.input.trickGrab = true; break;
+        case "KeyF": this.input.trickFlip = true; break;
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -78,6 +91,7 @@ export class SkaterController {
         case "ShiftRight": this.input.push = false; break;
         case "KeyE": this.input.trickSpin = false; break;
         case "KeyQ": this.input.trickGrab = false; break;
+        case "KeyF": this.input.trickFlip = false; break;
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -110,26 +124,7 @@ export class SkaterController {
     }
   }
 
-  private createFallbackSkater(scene: Scene): Mesh {
-    const body = MeshBuilder.CreateCapsule("skaterBody", { height: this.HEIGHT, radius: 0.35, tessellation: 12 }, scene);
-    body.position = new Vector3(0, 1.0, 0);
-    body.rotationQuaternion = null;
-    body.receiveShadows = true;
-    const mat = new StandardMaterial("skaterMat", scene);
-    mat.diffuseColor = new Color3(0.2, 0.6, 0.95);
-    mat.specularColor = new Color3(0.15, 0.15, 0.15);
-    body.material = mat;
-    // Simple board
-    const board = MeshBuilder.CreateBox("board", { width: 0.28, depth: 1.0, height: 0.06 }, scene);
-    const bmat = new StandardMaterial("boardMat", scene);
-    bmat.diffuseColor = new Color3(0.1, 0.1, 0.12);
-    bmat.specularColor = new Color3(0.2, 0.2, 0.2);
-    board.material = bmat;
-    board.position = new Vector3(0, -this.HEIGHT * 0.5 + 0.12, 0.0);
-    board.setParent(body);
-    this.boardMesh = board;
-    return body;
-  }
+  // (fallback skater implemented at bottom of the file)
 
   update(dt: number): void {
     // Turn rate affected by speed (faster speed => smaller yaw change)
@@ -172,14 +167,28 @@ export class SkaterController {
       this.velocity.z *= s;
     }
 
-    // Gravity / Jump
-    if (this.input.jump && this.grounded) {
-      this.velocity.y = this.JUMP_FORCE;
-      this.grounded = false;
-      this.skaterMesh.position.y += 0.01;
-    }
-    if (!this.grounded) {
-      this.velocity.y -= this.GRAVITY * dt;
+    // Gravity / Jump or Grind pop
+    if (this.isGrinding) {
+      if (this.input.jump) {
+        // Pop out of grind
+        this.isGrinding = false;
+        this.velocity.y = this.JUMP_FORCE;
+        // Give a small forward boost along grind direction
+        this.velocity.x += this.grindDir.x * 2.0;
+        this.velocity.z += this.grindDir.z * 2.0;
+      } else {
+        // While grinding, stay locked to rail
+        this.updateGrinding(dt);
+      }
+    } else {
+      if (this.input.jump && this.grounded) {
+        this.velocity.y = this.JUMP_FORCE;
+        this.grounded = false;
+        this.skaterMesh.position.y += 0.01;
+      }
+      if (!this.grounded) {
+        this.velocity.y -= this.GRAVITY * dt;
+      }
     }
 
     // Integrate
@@ -187,11 +196,115 @@ export class SkaterController {
     this.skaterMesh.position.z += this.velocity.z * dt;
     this.skaterMesh.position.y += this.velocity.y * dt;
 
-    // Grounding and slope interaction
-    this.groundCheckAndSlope(dt);
+    // Grounding and slope interaction or capture grind if eligible
+    if (!this.isGrinding) {
+      this.groundCheckAndSlope(dt);
+      this.tryCaptureGrind();
+    }
 
     // Tricks (cosmetic)
     this.updateTricks(dt);
+  }
+
+  private tryCaptureGrind(): void {
+    if (!this.grounded) return;
+    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (speed < 2.0) return;
+    // Find nearest rail within a small horizontal radius
+    let bestDist = 0.3;
+    let best: { start: Vector3; end: Vector3; y: number } | null = null;
+    for (const m of this.scene.meshes) {
+      const md: any = (m as any).metadata;
+      if (!md || !md.isRail) continue;
+      const start: Vector3 = md.start;
+      const end: Vector3 = md.end;
+      const p = this.skaterMesh.position;
+      const cp = this.closestPointOnSegment(p, start, end);
+      const d = Math.hypot(p.x - cp.x, p.z - cp.z);
+      const yOk = Math.abs(p.y - (start.y + md.radius + 0.12)) < 0.25;
+      if (d < bestDist && yOk) {
+        bestDist = d;
+        best = { start, end, y: start.y + md.radius + 0.12 };
+      }
+    }
+    if (best) {
+      // Enter grind
+      this.isGrinding = true;
+      this.grindStart.copyFrom(best.start);
+      this.grindEnd.copyFrom(best.end);
+      this.grindDir = best.end.subtract(best.start);
+      this.grindLen = Math.max(0.001, this.grindDir.length());
+      this.grindDir.scaleInPlace(1 / this.grindLen);
+      const cp = this.closestPointOnSegment(this.skaterMesh.position, this.grindStart, this.grindEnd);
+      const t = this.paramAlong(cp, this.grindStart, this.grindEnd);
+      this.grindT = t;
+      // Project velocity along rail
+      const v = new Vector3(this.velocity.x, 0, this.velocity.z);
+      const along = v.x * this.grindDir.x + v.z * this.grindDir.z;
+      this.velocity.x = this.grindDir.x * along;
+      this.velocity.z = this.grindDir.z * along;
+      // Lock position to rail
+      this.skaterMesh.position.x = cp.x;
+      this.skaterMesh.position.y = best.y;
+      this.skaterMesh.position.z = cp.z;
+      this.velocity.y = 0;
+      this.grounded = true;
+      // Face along rail
+      this.skaterMesh.rotation.y = Math.atan2(this.grindDir.x, -this.grindDir.z);
+    }
+  }
+
+  private updateGrinding(dt: number): void {
+    // Move along rail parameter by velocity along direction
+    const along = this.velocity.x * this.grindDir.x + this.velocity.z * this.grindDir.z;
+    const ds = along * dt;
+    const dT = ds / this.grindLen;
+    this.grindT += dT;
+    // Small friction while grinding
+    this.velocity.x *= 1 - Math.min(1, this.FRICTION * 0.25 * dt);
+    this.velocity.z *= 1 - Math.min(1, this.FRICTION * 0.25 * dt);
+    // Allow gentle acceleration with W/S along the rail
+    if (this.input.forward) {
+      this.velocity.x += this.grindDir.x * this.ACCELERATION * 0.5 * dt;
+      this.velocity.z += this.grindDir.z * this.ACCELERATION * 0.5 * dt;
+    } else if (this.input.backward) {
+      this.velocity.x -= this.grindDir.x * this.ACCELERATION * 0.5 * dt;
+      this.velocity.z -= this.grindDir.z * this.ACCELERATION * 0.5 * dt;
+    }
+    // Clamp overall speed similar to flat max
+    const h = Math.hypot(this.velocity.x, this.velocity.z);
+    if (h > this.MAX_SPEED_FLAT) {
+      const s = this.MAX_SPEED_FLAT / h;
+      this.velocity.x *= s;
+      this.velocity.z *= s;
+    }
+    // Leave rail if we run out of segment
+    if (this.grindT <= 0 || this.grindT >= 1) {
+      this.isGrinding = false;
+      this.grounded = false; // fall off the end
+      return;
+    }
+    // Update locked position to the segment
+    const pos = Vector3.Lerp(this.grindStart, this.grindEnd, this.grindT);
+    this.skaterMesh.position.x = pos.x;
+    this.skaterMesh.position.z = pos.z;
+    // Maintain slight clearance above rail
+    this.skaterMesh.position.y = this.grindStart.y + 0.12;
+  }
+
+  private closestPointOnSegment(p: Vector3, a: Vector3, b: Vector3): Vector3 {
+    const ab = b.subtract(a);
+    const t = this.paramAlong(p, a, b);
+    return a.add(ab.scale(t));
+  }
+
+  private paramAlong(p: Vector3, a: Vector3, b: Vector3): number {
+    const ab = b.subtract(a);
+    const ap = p.subtract(a);
+    const denom = ab.lengthSquared();
+    if (denom <= 1e-6) return 0;
+    const t = (ap.x * ab.x + ap.y * ab.y + ap.z * ab.z) / denom;
+    return Math.max(0, Math.min(1, t));
   }
 
   private groundCheckAndSlope(_dt: number): void {
@@ -254,11 +367,29 @@ export class SkaterController {
         if (this.boardMesh) this.boardMesh.rotation.x *= 0.9;
         this.trickGrabTime = 0;
       }
+      // Kickflip (board rotates around local Z)
+      if (this.input.trickFlip && !this.isFlipping) {
+        this.isFlipping = true;
+        this.trickFlipTime = 0;
+      }
+      if (this.isFlipping && this.boardMesh) {
+        this.trickFlipTime += dt;
+        const dur = 0.55;
+        const t = Math.min(1, this.trickFlipTime / dur);
+        const angle = Math.PI * 2 * t; // 360
+        this.boardMesh.rotation.z = angle;
+        if (t >= 1) {
+          this.isFlipping = false;
+          this.boardMesh.rotation.z = 0;
+        }
+      }
     } else {
       // Reset board tilt on land
       if (this.boardMesh) this.boardMesh.rotation.x *= 0.8;
       this.trickSpinTime = 0;
       this.trickGrabTime = 0;
+      this.isFlipping = false;
+      if (this.boardMesh) this.boardMesh.rotation.z = 0;
     }
   }
 
@@ -273,6 +404,53 @@ export class SkaterController {
 
   isGrounded(): boolean {
     return this.grounded;
+  }
+
+  // ------- Fallback 2020-style low-poly skater -------
+  private makeBlock(color: Color3, size: { w: number; h: number; d: number }, offset: Vector3, parent: Mesh): Mesh {
+    const m = MeshBuilder.CreateBox("part", { width: size.w, height: size.h, depth: size.d }, this.scene);
+    const mat = new StandardMaterial("partMat", this.scene);
+    mat.diffuseColor = color;
+    mat.specularColor = new Color3(0.05, 0.05, 0.05);
+    m.material = mat;
+    m.position.copyFrom(offset);
+    m.setParent(parent);
+    return m;
+  }
+
+  private createFallbackSkater(scene: Scene): Mesh {
+    // Invisible root the controller moves
+    const root = MeshBuilder.CreateBox("skaterRoot", { size: 0.1 }, scene);
+    root.isVisible = false;
+    root.position = new Vector3(0, 1.0, 0);
+    root.rotationQuaternion = null;
+    root.receiveShadows = true;
+
+    const grey = new Color3(0.85, 0.88, 0.92);
+    // Torso
+    this.makeBlock(grey, { w: 0.45, h: 0.55, d: 0.25 }, new Vector3(0, 0.3, 0), root);
+    // Hips
+    this.makeBlock(grey, { w: 0.4, h: 0.25, d: 0.22 }, new Vector3(0, 0.05, 0), root);
+    // Head
+    this.makeBlock(grey, { w: 0.22, h: 0.22, d: 0.22 }, new Vector3(0, 0.67, 0), root);
+    // Arms
+    this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(-0.32, 0.25, 0), root);
+    this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(0.32, 0.25, 0), root);
+    // Legs
+    this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(-0.12, -0.25, 0), root);
+    this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(0.12, -0.25, 0), root);
+
+    // Board
+    const board = MeshBuilder.CreateBox("board", { width: 0.28, depth: 1.0, height: 0.06 }, scene);
+    const bmat = new StandardMaterial("boardMat", scene);
+    bmat.diffuseColor = new Color3(0.18, 0.2, 0.22);
+    bmat.specularColor = new Color3(0.2, 0.2, 0.2);
+    board.material = bmat;
+    board.position = new Vector3(0, -0.45, 0.0);
+    board.setParent(root);
+    this.boardMesh = board;
+
+    return root;
   }
 }
 
