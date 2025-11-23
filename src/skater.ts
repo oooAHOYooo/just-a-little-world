@@ -5,6 +5,8 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Ray } from "@babylonjs/core/Culling/ray";
+import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
+import "@babylonjs/loaders/glTF";
 
 type InputState = {
   forward: boolean;
@@ -12,38 +14,46 @@ type InputState = {
   left: boolean;
   right: boolean;
   jump: boolean;
+  push: boolean;   // Shift
+  trickSpin: boolean; // E
+  trickGrab: boolean; // Q
 };
 
-/**
- * Momentum-based "skater" controller with simple ground stick, gravity and jump.
- * - Horizontal motion integrates acceleration and friction into velocity
- * - Orientation follows horizontal velocity on XZ
- * - Ground snap via downward ray against meshes tagged with metadata.isGround
- */
 export class SkaterController {
-  // -------- Tunable parameters (feel free to tweak) --------
-  public FLAT_ACCELERATION = 14.0; // units/sec^2 when pushing on flat ground
-  public FRICTION = 6.0;           // units/sec deceleration when no input
-  public MAX_SPEED = 9.0;          // max horizontal speed on flat ground
-  public JUMP_FORCE = 7.5;         // initial vertical velocity on jump
-  public GRAVITY = 18.0;           // downward acceleration (units/sec^2)
+  // Parameters
+  public MAX_SPEED_FLAT = 10.0;
+  public ACCELERATION = 12.0;
+  public TURN_SPEED = 2.4; // radians/sec at low speed
+  public FRICTION = 5.5;
+  public GRAVITY = 22.0;
+  public JUMP_FORCE = 7.8;
 
-  // -------- Internals --------
   public readonly scene: Scene;
-  public readonly mesh: Mesh;
+  private skaterMesh: Mesh;
+  private boardMesh: Mesh | null = null;
+  private velocity: Vector3 = new Vector3(0, 0, 0);
+  private grounded = false;
+  private groundNormal = new Vector3(0, 1, 0);
 
-  private input: InputState = { forward: false, backward: false, left: false, right: false, jump: false };
-  private velocity: Vector3 = new Vector3(0, 0, 0); // world-space velocity
-  private isGrounded = false;
+  private readonly HEIGHT = 1.7;
+  private readonly FOOT_EPS = 0.07;
 
-  private readonly PLAYER_HEIGHT = 1.6;
-  private readonly FOOT_STICK_EPS = 0.06; // tolerance for sticking to ground
+  private input: InputState = {
+    forward: false, backward: false, left: false, right: false, jump: false, push: false, trickSpin: false, trickGrab: false
+  };
 
-  constructor(scene: Scene, mesh?: Mesh) {
+  private trickSpinTime = 0;
+  private trickGrabTime = 0;
+
+  constructor(scene: Scene) {
     this.scene = scene;
-    this.mesh = mesh ?? this.createDefaultCapsule(scene);
-    this.mesh.rotationQuaternion = null; // use Euler yaw (rotation.y)
+    // Fallback capsule + board immediately
+    this.skaterMesh = this.createFallbackSkater(scene);
+    this.tryLoadGLB();
+    this.bindInput();
+  }
 
+  private bindInput(): void {
     const onKeyDown = (e: KeyboardEvent) => {
       switch (e.code) {
         case "KeyW": this.input.forward = true; break;
@@ -51,6 +61,10 @@ export class SkaterController {
         case "KeyA": this.input.left = true; break;
         case "KeyD": this.input.right = true; break;
         case "Space": this.input.jump = true; break;
+        case "ShiftLeft":
+        case "ShiftRight": this.input.push = true; break;
+        case "KeyE": this.input.trickSpin = true; break;
+        case "KeyQ": this.input.trickGrab = true; break;
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -60,127 +74,206 @@ export class SkaterController {
         case "KeyA": this.input.left = false; break;
         case "KeyD": this.input.right = false; break;
         case "Space": this.input.jump = false; break;
+        case "ShiftLeft":
+        case "ShiftRight": this.input.push = false; break;
+        case "KeyE": this.input.trickSpin = false; break;
+        case "KeyQ": this.input.trickGrab = false; break;
       }
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
   }
 
-  update(dt: number): void {
-    // 1) Horizontal acceleration from input in skater's local frame (XZ)
-    const yaw = this.mesh.rotation.y || 0;
-    const forward = new Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
-    const right = new Vector3(Math.cos(yaw), 0, Math.sin(yaw));
-
-    let inputX = 0;
-    let inputZ = 0;
-    if (this.input.forward) inputZ += 1;
-    if (this.input.backward) inputZ -= 1;
-    if (this.input.right) inputX += 1;
-    if (this.input.left) inputX -= 1;
-
-    // Build desired acceleration vector in world XZ
-    const hasInput = (inputX !== 0 || inputZ !== 0);
-    let accelX = 0;
-    let accelZ = 0;
-    if (hasInput) {
-      // Combine forward/back and strafe relative to facing
-      const ax = right.x * inputX + forward.x * inputZ;
-      const az = right.z * inputX + forward.z * inputZ;
-      const len = Math.hypot(ax, az);
-      if (len > 0.0001) {
-        const nx = ax / len;
-        const nz = az / len;
-        accelX = nx * this.FLAT_ACCELERATION;
-        accelZ = nz * this.FLAT_ACCELERATION;
+  private async tryLoadGLB(): Promise<void> {
+    try {
+      const result = await SceneLoader.ImportMeshAsync("", "/assets/", "skater.glb", this.scene);
+      if (result.meshes.length > 0) {
+        const root = result.meshes[0] as Mesh;
+        root.position.copyFrom(this.skaterMesh.position);
+        root.rotationQuaternion = null;
+        root.rotation.y = 0;
+        // Hide fallback
+        this.skaterMesh.setEnabled(false);
+        this.skaterMesh = root;
+        // Find board mesh if present
+        for (const m of result.meshes) {
+          if (m.name.toLowerCase().includes("board") || m.name.toLowerCase().includes("skateboard")) {
+            this.boardMesh = m as Mesh;
+            break;
+          }
+        }
+        // Animation groups mapping (optional)
+        // result.animationGroups.forEach(...)
       }
+    } catch {
+      // keep fallback
     }
+  }
 
-    // Integrate horizontal acceleration into velocity
-    this.velocity.x += accelX * dt;
-    this.velocity.z += accelZ * dt;
+  private createFallbackSkater(scene: Scene): Mesh {
+    const body = MeshBuilder.CreateCapsule("skaterBody", { height: this.HEIGHT, radius: 0.35, tessellation: 12 }, scene);
+    body.position = new Vector3(0, 1.0, 0);
+    body.rotationQuaternion = null;
+    body.receiveShadows = true;
+    const mat = new StandardMaterial("skaterMat", scene);
+    mat.diffuseColor = new Color3(0.2, 0.6, 0.95);
+    mat.specularColor = new Color3(0.15, 0.15, 0.15);
+    body.material = mat;
+    // Simple board
+    const board = MeshBuilder.CreateBox("board", { width: 0.28, depth: 1.0, height: 0.06 }, scene);
+    const bmat = new StandardMaterial("boardMat", scene);
+    bmat.diffuseColor = new Color3(0.1, 0.1, 0.12);
+    bmat.specularColor = new Color3(0.2, 0.2, 0.2);
+    board.material = bmat;
+    board.position = new Vector3(0, -this.HEIGHT * 0.5 + 0.12, 0.0);
+    board.setParent(body);
+    this.boardMesh = board;
+    return body;
+  }
 
-    // 2) Friction when no input (only horizontal component)
-    if (!hasInput) {
-      const speed = Math.hypot(this.velocity.x, this.velocity.z);
-      if (speed > 0) {
+  update(dt: number): void {
+    // Turn rate affected by speed (faster speed => smaller yaw change)
+    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+    const turnScale = Math.max(0.3, 1.0 - speed / (this.MAX_SPEED_FLAT + 1e-3));
+    if (this.input.left) this.skaterMesh.rotation.y -= this.TURN_SPEED * turnScale * dt;
+    if (this.input.right) this.skaterMesh.rotation.y += this.TURN_SPEED * turnScale * dt;
+
+    // Forward dir from yaw
+    const yaw = this.skaterMesh.rotation.y || 0;
+    const forward = new Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
+
+    // Acceleration/brake/push
+    let accel = 0;
+    if (this.input.forward) accel += this.ACCELERATION;
+    if (this.input.backward) accel -= this.ACCELERATION * 0.8;
+    if (this.input.push && speed < this.MAX_SPEED_FLAT * 0.6 && this.grounded) {
+      accel += this.ACCELERATION * 1.5;
+    }
+    this.velocity.x += forward.x * accel * dt;
+    this.velocity.z += forward.z * accel * dt;
+
+    // Friction when no input on flat ground
+    if (!this.input.forward && !this.input.backward && !this.input.push) {
+      const h = Math.hypot(this.velocity.x, this.velocity.z);
+      if (h > 0) {
         const decel = this.FRICTION * dt;
-        const newSpeed = Math.max(0, speed - decel);
-        const scale = newSpeed / speed;
-        this.velocity.x *= scale;
-        this.velocity.z *= scale;
+        const nh = Math.max(0, h - decel);
+        const s = nh / h;
+        this.velocity.x *= s;
+        this.velocity.z *= s;
       }
     }
 
     // Clamp horizontal speed
     const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    if (hSpeed > this.MAX_SPEED) {
-      const scale = this.MAX_SPEED / hSpeed;
-      this.velocity.x *= scale;
-      this.velocity.z *= scale;
+    if (hSpeed > this.MAX_SPEED_FLAT) {
+      const s = this.MAX_SPEED_FLAT / hSpeed;
+      this.velocity.x *= s;
+      this.velocity.z *= s;
     }
 
-    // 3) Jump / gravity
-    if (this.input.jump && this.isGrounded) {
+    // Gravity / Jump
+    if (this.input.jump && this.grounded) {
       this.velocity.y = this.JUMP_FORCE;
-      this.isGrounded = false;
-      this.mesh.position.y += 0.01; // small lift to break ground contact
+      this.grounded = false;
+      this.skaterMesh.position.y += 0.01;
     }
-    if (!this.isGrounded) {
+    if (!this.grounded) {
       this.velocity.y -= this.GRAVITY * dt;
     }
 
-    // 4) Integrate position
-    this.mesh.position.x += this.velocity.x * dt;
-    this.mesh.position.z += this.velocity.z * dt;
-    this.mesh.position.y += this.velocity.y * dt;
+    // Integrate
+    this.skaterMesh.position.x += this.velocity.x * dt;
+    this.skaterMesh.position.z += this.velocity.z * dt;
+    this.skaterMesh.position.y += this.velocity.y * dt;
 
-    // 5) Ground snap and grounded state
-    this.groundCheckAndResolve(dt);
+    // Grounding and slope interaction
+    this.groundCheckAndSlope(dt);
 
-    // 6) Face movement direction on XZ if moving
-    const newHSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    if (newHSpeed > 0.05) {
-      this.mesh.rotation.y = Math.atan2(this.velocity.x, -this.velocity.z); // -Z forward convention
-    }
+    // Tricks (cosmetic)
+    this.updateTricks(dt);
   }
 
-  private createDefaultCapsule(scene: Scene): Mesh {
-    const m = MeshBuilder.CreateCapsule("skater", { height: this.PLAYER_HEIGHT, radius: 0.35, tessellation: 12 }, scene);
-    m.position = new Vector3(0, 1.0, 0);
-    m.receiveShadows = true;
-    const mat = new StandardMaterial("skaterMat", scene);
-    mat.diffuseColor = new Color3(0.2, 0.6, 0.95);
-    mat.specularColor = new Color3(0.15, 0.15, 0.15);
-    m.material = mat;
-    return m;
-  }
-
-  private groundCheckAndResolve(_dt: number): void {
-    const rayOrigin = this.mesh.position.add(new Vector3(0, this.PLAYER_HEIGHT * 0.5, 0));
-    const rayLen = this.PLAYER_HEIGHT + 0.75;
-    const ray = new Ray(rayOrigin, new Vector3(0, -1, 0), rayLen);
+  private groundCheckAndSlope(_dt: number): void {
+    const rayOrigin = this.skaterMesh.position.add(new Vector3(0, this.HEIGHT * 0.5, 0));
+    const ray = new Ray(rayOrigin, new Vector3(0, -1, 0), this.HEIGHT + 1.0);
     const hit = this.scene.pickWithRay(ray, (m) => !!(m.metadata && m.metadata.isGround));
 
-    this.isGrounded = false;
+    this.grounded = false;
     if (hit?.hit && hit.pickedPoint) {
-      const expectedFootY = hit.pickedPoint.y + (this.PLAYER_HEIGHT * 0.5);
-      const delta = expectedFootY - this.mesh.position.y;
-      // If close to ground and moving downwards (or slightly above), snap and zero vertical velocity
-      if (delta >= -this.FOOT_STICK_EPS) {
+      const expectedFootY = hit.pickedPoint.y + (this.HEIGHT * 0.5);
+      const delta = expectedFootY - this.skaterMesh.position.y;
+      if (delta >= -this.FOOT_EPS) {
         if (this.velocity.y <= 0) {
-          this.mesh.position.y = expectedFootY;
+          this.skaterMesh.position.y = expectedFootY;
           this.velocity.y = 0;
-          this.isGrounded = true;
+          this.grounded = true;
+          if (hit.getNormal()) {
+            this.groundNormal.copyFrom(hit.getNormal()!);
+          } else {
+            this.groundNormal.set(0, 1, 0);
+          }
+          // Project horizontal velocity onto slope plane
+          const v = new Vector3(this.velocity.x, 0, this.velocity.z);
+          const n = this.groundNormal.clone().normalize();
+          const dot = v.x * n.x + v.y * n.y + v.z * n.z;
+          v.x -= n.x * dot;
+          v.y -= n.y * dot;
+          v.z -= n.z * dot;
+          this.velocity.x = v.x;
+          this.velocity.z = v.z;
+          // Small gravity along slope (accelerate downhill)
+          const downSlope = new Vector3(-n.x, 0, -n.z);
+          const dsLen = downSlope.length();
+          if (dsLen > 0.0001) {
+            downSlope.scaleInPlace(1 / dsLen);
+            const slopeAccel = (1 - n.y) * this.GRAVITY * 0.35;
+            this.velocity.x += downSlope.x * slopeAccel * _dt;
+            this.velocity.z += downSlope.z * slopeAccel * _dt;
+          }
         }
       }
     }
   }
-}
 
-export type SkaterLike = {
-  mesh: Mesh;
-  update: (dt: number) => void;
-};
+  private updateTricks(dt: number): void {
+    if (!this.grounded) {
+      if (this.input.trickSpin) {
+        this.trickSpinTime += dt;
+        // Spin around Y while in air
+        this.skaterMesh.rotation.y += Math.PI * 2 * dt; // ~360 deg per second
+      } else {
+        this.trickSpinTime = 0;
+      }
+      if (this.input.trickGrab) {
+        this.trickGrabTime += dt;
+        if (this.boardMesh) {
+          this.boardMesh.rotation.x = Math.sin(this.trickGrabTime * 6.0) * 0.2;
+        }
+      } else {
+        if (this.boardMesh) this.boardMesh.rotation.x *= 0.9;
+        this.trickGrabTime = 0;
+      }
+    } else {
+      // Reset board tilt on land
+      if (this.boardMesh) this.boardMesh.rotation.x *= 0.8;
+      this.trickSpinTime = 0;
+      this.trickGrabTime = 0;
+    }
+  }
+
+  getPosition(): Vector3 {
+    return this.skaterMesh.position;
+    // Returning reference is fine as caller should not mutate directly
+  }
+
+  getVelocity(): Vector3 {
+    return this.velocity;
+  }
+
+  isGrounded(): boolean {
+    return this.grounded;
+  }
+}
 
 

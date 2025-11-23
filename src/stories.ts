@@ -1,34 +1,30 @@
-export type Story = {
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+
+export type StorySpot = {
   id: string;
   title: string;
   text: string;
-  position: [number, number, number];
+  position: Vector3;
 };
 
-export const STORIES: Story[] = [
+export const STORY_SPOTS: StorySpot[] = [
   {
-    id: "arrival",
-    title: "Arrival",
-    text: "You wake to the gentle sway of grass and a distant gull.",
-    position: [2.5, 0.8, -1.5]
+    id: "gullcrest-sign",
+    title: "Gullcrest Block",
+    text: "Block party starts at dusk. Bring your board and a story.",
+    position: new Vector3(0, 0.9, -8)
   },
   {
-    id: "footprints",
-    title: "Footprints",
-    text: "Faint footprints circle the island—someone else has been here.",
-    position: [-4.0, 0.9, 2.0]
+    id: "bike-lane-mural",
+    title: "Lane Mural",
+    text: "Fresh paint, still tacky. A cat in motion, forever.",
+    position: new Vector3(10, 0.9, -2)
   },
   {
-    id: "old-song",
-    title: "An Old Song",
-    text: "The wind hums a tune you almost remember. Almost.",
-    position: [6.0, 1.0, 3.5]
-  },
-  {
-    id: "lantern",
-    title: "Lantern Light",
-    text: "A lantern’s glass, still warm. Its owner can’t be far.",
-    position: [-2.5, 0.85, -5.0]
+    id: "corner-deli",
+    title: "Corner Deli",
+    text: "Mint tea and cracked tiles. The owner nods as you roll by.",
+    position: new Vector3(-14, 0.9, 14)
   }
 ];
 

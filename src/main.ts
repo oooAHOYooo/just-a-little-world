@@ -1,7 +1,4 @@
-import { createEngine, createGameScene, createMarioCamera } from "./gameScene";
-import { SkaterController } from "./skater";
-import { getStoryOrbs } from "./level";
-import { showStoryPanel } from "./storyPanel";
+import { createEngine, createGameScene } from "./gameScene";
 
 function getCanvas(): HTMLCanvasElement {
   const canvas = document.getElementById("game-canvas") as HTMLCanvasElement | null;
@@ -14,15 +11,7 @@ function getCanvas(): HTMLCanvasElement {
 async function bootstrap(): Promise<void> {
   const canvas = getCanvas();
   const engine = createEngine(canvas);
-  const scene = createGameScene(engine);
-
-  // Create the skater and camera
-  const skater = new SkaterController(scene);
-  const cameraController = createMarioCamera(scene, skater);
-
-  const storyOrbs = getStoryOrbs();
-  const collectRadius = 2.0;
-  const collectRadiusSq = collectRadius * collectRadius;
+  const { scene, update } = createGameScene(engine);
 
   // Render loop
   let lastTime = performance.now();
@@ -31,23 +20,7 @@ async function bootstrap(): Promise<void> {
     const deltaSeconds = (now - lastTime) / 1000;
     lastTime = now;
 
-    skater.update(deltaSeconds);
-
-    // Story pickup checks
-    for (const orb of storyOrbs) {
-      if (orb.collected) continue;
-      const dx = skater.mesh.position.x - orb.mesh.position.x;
-      const dy = skater.mesh.position.y - orb.mesh.position.y;
-      const dz = skater.mesh.position.z - orb.mesh.position.z;
-      const distSq = dx * dx + dy * dy + dz * dz;
-      if (distSq <= collectRadiusSq) {
-        orb.collected = true;
-        orb.mesh.setEnabled(false);
-        showStoryPanel(orb.data.title, orb.data.text, 4500);
-      }
-    }
-
-    cameraController.updateCamera(deltaSeconds);
+    update(deltaSeconds);
     scene.render();
   });
 
