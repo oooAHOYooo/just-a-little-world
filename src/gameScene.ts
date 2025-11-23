@@ -12,7 +12,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { buildPark } from "./park";
 import { SkaterController } from "./skater";
 import { createSkateCamera } from "./camera";
-import { initUI, showTrickPopup, setLocationLabel } from "./ui";
+import { initUI, showTrickPopup, setLocationLabel, setScore, setHighScore, setTimer } from "./ui";
 import { StorySpot, STORY_SPOTS } from "./stories";
 
 export function createEngine(canvas: HTMLCanvasElement): Engine {
@@ -54,9 +54,28 @@ export function createGameScene(engine: Engine): {
   // UI
   initUI();
   setLocationLabel("Gullcrest Block");
+  let score = 0;
+  let best = Number(localStorage.getItem("skate-best") || "0") || 0;
+  setScore(score);
+  setHighScore(best);
+  let timeLeft = 120; // 2 minutes
+  setTimer(timeLeft);
 
   // Skater
-  const skater = new SkaterController(scene);
+  const skater = new SkaterController(scene, {
+    onTrickLanded: (name: string, points: number) => {
+      if (points > 0) {
+        score += points;
+        setScore(score);
+        if (score > best) {
+          best = score;
+          localStorage.setItem("skate-best", String(best));
+          setHighScore(best);
+        }
+        showTrickPopup(`${name} +${points}`);
+      }
+    }
+  } as any);
   const camController = createSkateCamera(scene, skater, camera);
 
   // Story spots proximity check
@@ -68,6 +87,9 @@ export function createGameScene(engine: Engine): {
   function update(dt: number): void {
     skater.update(dt);
     camController.update(dt);
+    // Timer
+    timeLeft -= dt;
+    setTimer(timeLeft);
 
     // Story pickups
     const pos = skater.getPosition();

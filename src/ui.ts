@@ -4,6 +4,9 @@ let locationBar: HTMLDivElement | null = null;
 let trickContainer: HTMLDivElement | null = null;
 let controlsCard: HTMLDivElement | null = null;
 let controlsVisible = false;
+let scoreEl: HTMLDivElement | null = null;
+let timerEl: HTMLDivElement | null = null;
+let hiscoreEl: HTMLDivElement | null = null;
 
 export function initUI(): void {
   if (root) return;
@@ -70,6 +73,52 @@ export function initUI(): void {
   trickContainer.style.gap = "6px";
   root.appendChild(trickContainer);
 
+  // Score (top-right)
+  const scoreWrap = document.createElement("div");
+  scoreWrap.style.position = "absolute";
+  scoreWrap.style.right = "16px";
+  scoreWrap.style.top = "14px";
+  scoreWrap.style.display = "flex";
+  scoreWrap.style.flexDirection = "column";
+  scoreWrap.style.alignItems = "flex-end";
+  scoreWrap.style.gap = "6px";
+  root.appendChild(scoreWrap);
+
+  scoreEl = document.createElement("div");
+  scoreEl.style.padding = "6px 10px";
+  scoreEl.style.borderRadius = "8px";
+  scoreEl.style.background = "rgba(255,255,255,0.9)";
+  scoreEl.style.color = "#111";
+  scoreEl.style.fontWeight = "700";
+  scoreEl.style.fontSize = "14px";
+  scoreEl.style.boxShadow = "0 2px 8px rgba(0,0,0,0.12)";
+  scoreEl.textContent = "Score: 0";
+  scoreWrap.appendChild(scoreEl);
+
+  hiscoreEl = document.createElement("div");
+  hiscoreEl.style.padding = "4px 8px";
+  hiscoreEl.style.borderRadius = "6px";
+  hiscoreEl.style.background = "rgba(255,255,255,0.78)";
+  hiscoreEl.style.color = "#333";
+  hiscoreEl.style.fontSize = "12px";
+  hiscoreEl.textContent = "Best: 0";
+  scoreWrap.appendChild(hiscoreEl);
+
+  // Timer (top-left)
+  timerEl = document.createElement("div");
+  timerEl.style.position = "absolute";
+  timerEl.style.left = "16px";
+  timerEl.style.top = "14px";
+  timerEl.style.padding = "6px 10px";
+  timerEl.style.borderRadius = "8px";
+  timerEl.style.background = "rgba(255,255,255,0.9)";
+  timerEl.style.color = "#111";
+  timerEl.style.fontWeight = "700";
+  timerEl.style.fontSize = "14px";
+  timerEl.style.boxShadow = "0 2px 8px rgba(0,0,0,0.12)";
+  timerEl.textContent = "02:00";
+  root.appendChild(timerEl);
+
   // Controls overlay (toggle with Tab)
   controlsCard = document.createElement("div");
   controlsCard.style.position = "absolute";
@@ -129,6 +178,23 @@ export function showTrickPopup(text: string): void {
       el.remove();
     }, 220);
   }, 1000);
+}
+
+export function setScore(score: number): void {
+  if (scoreEl) scoreEl.textContent = `Score: ${score}`;
+}
+
+export function setHighScore(best: number): void {
+  if (hiscoreEl) hiscoreEl.textContent = `Best: ${best}`;
+}
+
+export function setTimer(secondsRemaining: number): void {
+  if (!timerEl) return;
+  const s = Math.max(0, Math.floor(secondsRemaining));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  const ss = sec < 10 ? `0${sec}` : `${sec}`;
+  timerEl.textContent = `${m}:${ss}`;
 }
 
 

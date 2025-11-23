@@ -20,6 +20,10 @@ type InputState = {
   trickFlip: boolean; // F
 };
 
+type SkaterOptions = {
+  onTrickLanded?: (name: string, points: number) => void;
+};
+
 export class SkaterController {
   // Parameters
   public MAX_SPEED_FLAT = 10.0;
@@ -49,6 +53,7 @@ export class SkaterController {
   private trickGrabTime = 0;
   private trickFlipTime = 0;
   private isFlipping = false;
+  private kickflipMarked = false;
 
   // Grind state
   private isGrinding = false;
@@ -67,9 +72,18 @@ export class SkaterController {
   private partLegL: Mesh | null = null;
   private partLegR: Mesh | null = null;
   private crouch: number = 0; // 0..1
+  private prevGrounded = true;
+  private airSpinAccum = 0; // radians
+  private airGrab = false;
 
-  constructor(scene: Scene) {
+  private boardBasePosY = -0.45;
+  private boardBaseRotZ = 0;
+
+  private onTrick?: (name: string, points: number) => void;
+
+  constructor(scene: Scene, opts?: SkaterOptions) {
     this.scene = scene;
+    this.onTrick = opts?.onTrickLanded;
     // Fallback capsule + board immediately
     this.skaterMesh = this.createFallbackSkater(scene);
     this.tryLoadGLB();
@@ -230,7 +244,7 @@ export class SkaterController {
       this.tryCaptureGrind();
     }
 
-    // Tricks (cosmetic)
+    // Tricks (cosmetic) and air tracking
     this.updateTricks(dt);
 
     // World boundaries clamp (keep skater within play area)
@@ -243,6 +257,33 @@ export class SkaterController {
     const rate = this.grounded ? 4.0 : 8.0;
     this.crouch += (targetCrouch - this.crouch) * Math.min(1, rate * dt);
     this.applyFallbackPose();
+    // Landing detection → score tricks
+    if (this.prevGrounded === false && this.grounded === true) {
+      let points = 0;
+      const names: string[] = [];
+      if (this.kickflipMarked) {
+        points += 100;
+        names.push("Kickflip");
+      }
+      const turns = Math.round(this.airSpinAccum / (Math.PI * 2));
+      if (turns >= 1) {
+        points += 150 * turns;
+        names.push(`${turns}x Spin`);
+      }
+      if (this.airGrab) {
+        points += 50;
+        names.push("Grab");
+      }
+      if (points > 0 && this.onTrick) {
+        const label = names.join(" + ");
+        this.onTrick(label || "Trick", points);
+      }
+      // reset air state
+      this.airSpinAccum = 0;
+      this.airGrab = false;
+      this.kickflipMarked = false;
+    }
+    this.prevGrounded = this.grounded;
   }
 
   private clampToWorldBounds(): void {
@@ -406,6 +447,7 @@ export class SkaterController {
         this.trickSpinTime += dt;
         // Spin around Y while in air
         this.skaterMesh.rotation.y += Math.PI * 2 * dt; // ~360 deg per second
+        this.airSpinAccum += Math.PI * 2 * dt;
       } else {
         this.trickSpinTime = 0;
       }
@@ -414,6 +456,7 @@ export class SkaterController {
         if (this.boardMesh) {
           this.boardMesh.rotation.x = Math.sin(this.trickGrabTime * 6.0) * 0.2;
         }
+        if (this.trickGrabTime > 0.2) this.airGrab = true;
       } else {
         if (this.boardMesh) this.boardMesh.rotation.x *= 0.9;
         this.trickGrabTime = 0;
@@ -422,19 +465,20 @@ export class SkaterController {
       if (this.input.trickFlip && !this.isFlipping) {
         this.isFlipping = true;
         this.trickFlipTime = 0;
+        this.kickflipMarked = true;
       }
       if (this.isFlipping && this.boardMesh) {
         this.trickFlipTime += dt;
         const dur = 0.55;
         const t = Math.min(1, this.trickFlipTime / dur);
         const angle = Math.PI * 2 * t; // 360
-        this.boardMesh.rotation.z = angle;
+        this.boardMesh.rotation.z = this.boardBaseRotZ + angle;
         // subtle board lift during flip
-        this.boardMesh.position.y = -0.45 + Math.sin(Math.PI * t) * 0.06;
+        this.boardMesh.position.y = this.boardBasePosY + Math.sin(Math.PI * t) * 0.06;
         if (t >= 1) {
           this.isFlipping = false;
-          this.boardMesh.rotation.z = 0;
-          this.boardMesh.position.y = -0.45;
+          this.boardMesh.rotation.z = this.boardBaseRotZ;
+          this.boardMesh.position.y = this.boardBasePosY;
         }
       }
     } else {
@@ -444,8 +488,8 @@ export class SkaterController {
       this.trickGrabTime = 0;
       this.isFlipping = false;
       if (this.boardMesh) {
-        this.boardMesh.rotation.z = 0;
-        this.boardMesh.position.y = -0.45;
+        this.boardMesh.rotation.z = this.boardBaseRotZ;
+        this.boardMesh.position.y = this.boardBasePosY;
       }
     }
   }
@@ -503,7 +547,7 @@ export class SkaterController {
     bmat.diffuseColor = new Color3(0.18, 0.2, 0.22);
     bmat.specularColor = new Color3(0.2, 0.2, 0.2);
     board.material = bmat;
-    board.position = new Vector3(0, -0.45, 0.0);
+    board.position = new Vector3(0, this.boardBasePosY, 0.0);
     board.setParent(root);
     this.boardMesh = board;
 
