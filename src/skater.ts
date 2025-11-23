@@ -63,6 +63,8 @@ export class SkaterController {
     this.skaterMesh = this.createFallbackSkater(scene);
     this.tryLoadGLB();
     this.bindInput();
+    // Spawn snapped to ground at start
+    this.snapToGroundAtStart();
   }
 
   private bindInput(): void {
@@ -96,6 +98,19 @@ export class SkaterController {
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+  }
+
+  private snapToGroundAtStart(): void {
+    // Cast from above to ensure we land on whatever is below spawn XZ
+    const startPos = this.skaterMesh.position.clone();
+    const rayOrigin = new Vector3(startPos.x, 5, startPos.z);
+    const ray = new Ray(rayOrigin, new Vector3(0, -1, 0), 10);
+    const hit = this.scene.pickWithRay(ray, (m) => !!(m.metadata && m.metadata.isGround));
+    if (hit?.hit && hit.pickedPoint) {
+      this.skaterMesh.position.y = hit.pickedPoint.y + this.HEIGHT * 0.5;
+      this.velocity.set(0, 0, 0);
+      this.grounded = true;
+    }
   }
 
   private async tryLoadGLB(): Promise<void> {
@@ -204,6 +219,21 @@ export class SkaterController {
 
     // Tricks (cosmetic)
     this.updateTricks(dt);
+
+    // World boundaries clamp (keep skater within play area)
+    this.clampToWorldBounds();
+  }
+
+  private clampToWorldBounds(): void {
+    // Park dimensions: road width 30, sidewalks extend to +/-12, buildings at +/-18.
+    // Keep player roughly inside sidewalks and a bit of buffer.
+    const minX = -14.0, maxX = 14.0;
+    const minZ = -29.0, maxZ = 29.0;
+    const p = this.skaterMesh.position;
+    if (p.x < minX) { p.x = minX; if (this.velocity.x < 0) this.velocity.x = 0; }
+    if (p.x > maxX) { p.x = maxX; if (this.velocity.x > 0) this.velocity.x = 0; }
+    if (p.z < minZ) { p.z = minZ; if (this.velocity.z < 0) this.velocity.z = 0; }
+    if (p.z > maxZ) { p.z = maxZ; if (this.velocity.z > 0) this.velocity.z = 0; }
   }
 
   private tryCaptureGrind(): void {

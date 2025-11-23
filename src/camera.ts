@@ -23,15 +23,15 @@ export function createSkateCamera(
   scene.activeCamera = cam;
 
   // Tunables
-  const heightOffset = 2.4;
-  const backOffset = -7.0;
-  const sideOffset = 1.0;
+  const heightOffset = 2.0;
+  const backOffset = -6.5;
+  const sideOffset = 1.2;
   const followStiffness = 8.0;
   const aimStiffness = 8.0;
   const obstructionPadding = 0.3;
-  const baseFov = 0.8;
+  const baseFov = 0.78;
   const fovSpeedGain = 0.02; // per unit speed
-  const fovMax = 1.1;
+  const fovMax = 1.05;
 
   const desiredPos = new Vector3();
   const currentPos = cam.position;
@@ -58,7 +58,7 @@ export function createSkateCamera(
       pos.z + fz * backOffset + rz * sideOffset
     );
 
-    currentTarget.set(pos.x + fx * 2.0, pos.y + 1.0, pos.z + fz * 2.0);
+    currentTarget.set(pos.x + fx * 2.5, pos.y + 1.0, pos.z + fz * 2.5);
   }
 
   // Simple camera collision: bring camera closer if obstructed

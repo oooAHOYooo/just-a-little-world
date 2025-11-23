@@ -167,6 +167,30 @@ export function buildPark(scene: Scene): { root: TransformNode; shadowCasters: M
   p2.setParent(root);
   shadowCasters.push(p2);
 
+  // Quarterpipes: simple stepped transition on both sidewalks near center
+  function addQuarterPipe(xSide: number, zCenter: number): void {
+    const stepW = 4.0;   // along X
+    const stepD = 4.0;   // along Z
+    const steps = 4;
+    for (let i = 0; i < steps; i++) {
+      const h = 0.25 + i * 0.25;
+      const depth = stepD;
+      const width = stepW;
+      const box = MeshBuilder.CreateBox(`quarter_${xSide}_${i}`, { width, depth, height: h }, scene);
+      const x = xSide < 0 ? -12 - (width / 2) + 1.0 : 12 + (width / 2) - 1.0;
+      const z = zCenter + (i - (steps - 1) / 2) * (depth * 0.6);
+      box.position.set(x, h / 2, z);
+      box.rotation.y = xSide < 0 ? Math.PI / 2 : -Math.PI / 2;
+      box.material = curbMat;
+      box.receiveShadows = true;
+      box.setParent(root);
+      (box as any).metadata = { isGround: true };
+      shadowCasters.push(box);
+    }
+  }
+  addQuarterPipe(-1, -6);
+  addQuarterPipe(1, -6);
+
   return { root, shadowCasters };
 }
 
