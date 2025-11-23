@@ -124,6 +124,21 @@ export function buildPark(scene: Scene): { root: TransformNode; shadowCasters: M
     radius: 0.06
   };
 
+  // Third rail on right sidewalk closer to middle
+  const rail3 = MeshBuilder.CreateCylinder("rail3", { diameter: 0.12, height: 7, tessellation: 12 }, scene);
+  rail3.position.set(9.5, 0.5, 2);
+  rail3.rotation.x = Math.PI / 2;
+  rail3.material = railMat;
+  rail3.receiveShadows = true;
+  rail3.setParent(root);
+  (rail3 as any).metadata = {
+    isGround: true,
+    isRail: true,
+    start: new Vector3(9.5, 0.5, -1.5),
+    end: new Vector3(9.5, 0.5, 5.5),
+    radius: 0.06
+  };
+
   // Simple buildings
   const buildingColors = [
     new Color3(0.9, 0.9, 0.95),

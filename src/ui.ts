@@ -20,9 +20,9 @@ export function initUI(): void {
   // Reticle
   reticle = document.createElement("div");
   reticle.style.position = "absolute";
-  reticle.style.left = "50%";
-  reticle.style.bottom = "48px";
-  reticle.style.transform = "translateX(-50%)";
+  reticle.style.left = "20px";
+  reticle.style.bottom = "20px";
+  reticle.style.transform = "none";
   reticle.style.width = "56px";
   reticle.style.height = "56px";
   reticle.style.border = "2px solid rgba(0,0,0,0.65)";

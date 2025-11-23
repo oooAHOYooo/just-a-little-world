@@ -38,6 +38,8 @@ export class SkaterController {
 
   private readonly HEIGHT = 1.7;
   private readonly FOOT_EPS = 0.07;
+  // Vertical distance from mesh origin to foot/board contact. Tuned for fallback rig.
+  private readonly BASE_FOOT_HEIGHT = 0.9;
 
   private input: InputState = {
     forward: false, backward: false, left: false, right: false, jump: false, push: false, trickSpin: false, trickGrab: false, trickFlip: false
@@ -56,6 +58,15 @@ export class SkaterController {
   private grindLen = 1;
   private grindT = 0.5;
   private railHeight = 0.5;
+
+  // Fallback rig parts (only used if GLB not loaded)
+  private partTorso: Mesh | null = null;
+  private partHead: Mesh | null = null;
+  private partArmL: Mesh | null = null;
+  private partArmR: Mesh | null = null;
+  private partLegL: Mesh | null = null;
+  private partLegR: Mesh | null = null;
+  private crouch: number = 0; // 0..1
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -107,7 +118,7 @@ export class SkaterController {
     const ray = new Ray(rayOrigin, new Vector3(0, -1, 0), 10);
     const hit = this.scene.pickWithRay(ray, (m) => !!(m.metadata && m.metadata.isGround));
     if (hit?.hit && hit.pickedPoint) {
-      this.skaterMesh.position.y = hit.pickedPoint.y + this.HEIGHT * 0.5;
+      this.skaterMesh.position.y = hit.pickedPoint.y + this.BASE_FOOT_HEIGHT;
       this.velocity.set(0, 0, 0);
       this.grounded = true;
     }
@@ -197,7 +208,9 @@ export class SkaterController {
       }
     } else {
       if (this.input.jump && this.grounded) {
-        this.velocity.y = this.JUMP_FORCE;
+        // small crouch windup
+        this.crouch = Math.min(1, this.crouch + 0.6);
+      this.velocity.y = this.JUMP_FORCE;
         this.grounded = false;
         this.skaterMesh.position.y += 0.01;
       }
@@ -222,6 +235,14 @@ export class SkaterController {
 
     // World boundaries clamp (keep skater within play area)
     this.clampToWorldBounds();
+
+    // Animate simple stance/crouch
+    const moving = Math.hypot(this.velocity.x, this.velocity.z) > 0.1;
+    const targetCrouch = this.grounded ? (moving ? 0.25 : 0.1) : 0; // slight bend while rolling
+    // decay crouch quickly after jump
+    const rate = this.grounded ? 4.0 : 8.0;
+    this.crouch += (targetCrouch - this.crouch) * Math.min(1, rate * dt);
+    this.applyFallbackPose();
   }
 
   private clampToWorldBounds(): void {
@@ -344,7 +365,7 @@ export class SkaterController {
 
     this.grounded = false;
     if (hit?.hit && hit.pickedPoint) {
-      const expectedFootY = hit.pickedPoint.y + (this.HEIGHT * 0.5);
+      const expectedFootY = hit.pickedPoint.y + this.BASE_FOOT_HEIGHT;
       const delta = expectedFootY - this.skaterMesh.position.y;
       if (delta >= -this.FOOT_EPS) {
         if (this.velocity.y <= 0) {
@@ -408,9 +429,12 @@ export class SkaterController {
         const t = Math.min(1, this.trickFlipTime / dur);
         const angle = Math.PI * 2 * t; // 360
         this.boardMesh.rotation.z = angle;
+        // subtle board lift during flip
+        this.boardMesh.position.y = -0.45 + Math.sin(Math.PI * t) * 0.06;
         if (t >= 1) {
           this.isFlipping = false;
           this.boardMesh.rotation.z = 0;
+          this.boardMesh.position.y = -0.45;
         }
       }
     } else {
@@ -419,7 +443,10 @@ export class SkaterController {
       this.trickSpinTime = 0;
       this.trickGrabTime = 0;
       this.isFlipping = false;
-      if (this.boardMesh) this.boardMesh.rotation.z = 0;
+      if (this.boardMesh) {
+        this.boardMesh.rotation.z = 0;
+        this.boardMesh.position.y = -0.45;
+      }
     }
   }
 
@@ -458,17 +485,17 @@ export class SkaterController {
 
     const grey = new Color3(0.85, 0.88, 0.92);
     // Torso
-    this.makeBlock(grey, { w: 0.45, h: 0.55, d: 0.25 }, new Vector3(0, 0.3, 0), root);
+    this.partTorso = this.makeBlock(grey, { w: 0.45, h: 0.55, d: 0.25 }, new Vector3(0, 0.3, 0), root);
     // Hips
-    this.makeBlock(grey, { w: 0.4, h: 0.25, d: 0.22 }, new Vector3(0, 0.05, 0), root);
+    const hips = this.makeBlock(grey, { w: 0.4, h: 0.25, d: 0.22 }, new Vector3(0, 0.05, 0), root);
     // Head
-    this.makeBlock(grey, { w: 0.22, h: 0.22, d: 0.22 }, new Vector3(0, 0.67, 0), root);
+    this.partHead = this.makeBlock(grey, { w: 0.22, h: 0.22, d: 0.22 }, new Vector3(0, 0.67, 0), root);
     // Arms
-    this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(-0.32, 0.25, 0), root);
-    this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(0.32, 0.25, 0), root);
+    this.partArmL = this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(-0.32, 0.25, 0), root);
+    this.partArmR = this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(0.32, 0.25, 0), root);
     // Legs
-    this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(-0.12, -0.25, 0), root);
-    this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(0.12, -0.25, 0), root);
+    this.partLegL = this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(-0.16, -0.25, -0.06), root);
+    this.partLegR = this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(0.16, -0.25, 0.06), root);
 
     // Board
     const board = MeshBuilder.CreateBox("board", { width: 0.28, depth: 1.0, height: 0.06 }, scene);
@@ -481,6 +508,24 @@ export class SkaterController {
     this.boardMesh = board;
 
     return root;
+  }
+
+  private applyFallbackPose(): void {
+    if (!this.partTorso || !this.partLegL || !this.partLegR || !this.partArmL || !this.partArmR) return;
+    // Torso slight forward lean while moving/crouched
+    const lean = -0.15 * this.crouch;
+    this.partTorso.rotation = this.partTorso.rotation || new Vector3();
+    this.partTorso.rotation.x = lean;
+    // Legs bend via vertical offsets
+    const legOffset = -0.08 * this.crouch;
+    this.partLegL.position.y = -0.25 + legOffset;
+    this.partLegR.position.y = -0.25 + legOffset;
+    // Arms relaxed swing toward back
+    const armAngle = 0.25 + 0.2 * this.crouch;
+    this.partArmL.rotation = this.partArmL.rotation || new Vector3();
+    this.partArmR.rotation = this.partArmR.rotation || new Vector3();
+    this.partArmL.rotation.z = armAngle;
+    this.partArmR.rotation.z = -armAngle;
   }
 }
 
