@@ -37,6 +37,39 @@ export function createSkateCamera(
   const currentPos = cam.position;
   const currentTarget = new Vector3();
 
+  // Right-mouse "right stick" look
+  let dragging = false;
+  let userYaw = 0;    // radians
+  let userPitch = 0;  // radians
+  const yawSensitivity = 0.0035;
+  const pitchSensitivity = 0.0030;
+  const pitchClamp = 0.5;
+  const canvas = scene.getEngine().getRenderingCanvas() || undefined;
+  if (canvas) {
+    canvas.oncontextmenu = (e) => { e.preventDefault(); };
+    window.addEventListener("mousedown", (e) => {
+      if (e.button === 2) {
+        dragging = true;
+        canvas.requestPointerLock?.();
+      }
+    });
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 2) {
+        dragging = false;
+        if (document.pointerLockElement === canvas) {
+          document.exitPointerLock?.();
+        }
+      }
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging && document.pointerLockElement !== canvas) return;
+      const dx = e.movementX || 0;
+      const dy = e.movementY || 0;
+      userYaw += dx * yawSensitivity;
+      userPitch = Math.max(-pitchClamp, Math.min(pitchClamp, userPitch - dy * pitchSensitivity));
+    });
+  }
+
   function computeDesired(): void {
     const pos = skater.getPosition();
     const vel = skater.getVelocity();
@@ -48,17 +81,24 @@ export function createSkateCamera(
     } else {
       fx /= len; fz /= len;
     }
+    // Apply user yaw (right-stick) rotation around Y
+    if (userYaw !== 0) {
+      const c = Math.cos(userYaw), s = Math.sin(userYaw);
+      const nfx = fx * c - fz * s;
+      const nfz = fx * s + fz * c;
+      fx = nfx; fz = nfz;
+    }
     // Right vector on XZ
     const rx = fz;
     const rz = -fx;
 
     desiredPos.set(
       pos.x + fx * backOffset + rx * sideOffset,
-      pos.y + heightOffset,
+      pos.y + heightOffset + userPitch * 2.0,
       pos.z + fz * backOffset + rz * sideOffset
     );
 
-    currentTarget.set(pos.x + fx * 2.5, pos.y + 1.0, pos.z + fz * 2.5);
+    currentTarget.set(pos.x + fx * 2.5, pos.y + 1.0 + userPitch * 2.0, pos.z + fz * 2.5);
   }
 
   // Simple camera collision: bring camera closer if obstructed
