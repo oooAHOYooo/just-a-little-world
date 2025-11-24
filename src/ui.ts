@@ -7,6 +7,13 @@ let controlsVisible = false;
 let scoreEl: HTMLDivElement | null = null;
 let timerEl: HTMLDivElement | null = null;
 let hiscoreEl: HTMLDivElement | null = null;
+let startMenu: HTMLDivElement | null = null;
+let pauseMenu: HTMLDivElement | null = null;
+let adminButton: HTMLButtonElement | null = null;
+let pauseButton: HTMLButtonElement | null = null;
+let onStartCallback: (() => void) | null = null;
+let onResumeCallback: (() => void) | null = null;
+let onPauseCallback: (() => void) | null = null;
 
 export function initUI(): void {
   if (root) return;
@@ -138,11 +145,161 @@ export function initUI(): void {
     "Movement: Arrows or I/J/K/L<br/>Accelerate: Up / I<br/>Brake: Down / K<br/>Turn: Left/Right or J/L<br/>Push: Shift<br/>Jump/Pop: Space<br/><br/>Tricks (WASD):<br/>W/E: Spin<br/>A/Q: Grab<br/>D/F: Kickflip<br/>S: Shove-it<br/>Grind: Land on a rail";
   root.appendChild(controlsCard);
 
+  // Admin button (top-right, below score)
+  adminButton = document.createElement("button");
+  adminButton.textContent = "Admin";
+  adminButton.style.position = "absolute";
+  adminButton.style.right = "16px";
+  adminButton.style.top = "80px";
+  adminButton.style.padding = "6px 12px";
+  adminButton.style.borderRadius = "6px";
+  adminButton.style.border = "none";
+  adminButton.style.background = "rgba(100, 150, 255, 0.9)";
+  adminButton.style.color = "#fff";
+  adminButton.style.fontWeight = "600";
+  adminButton.style.fontSize = "12px";
+  adminButton.style.cursor = "pointer";
+  adminButton.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+  adminButton.style.pointerEvents = "auto";
+  adminButton.onclick = () => {
+    window.location.href = "/admin.html";
+  };
+  root.appendChild(adminButton);
+
+  // Pause button (top-right, below admin)
+  pauseButton = document.createElement("button");
+  pauseButton.textContent = "Pause";
+  pauseButton.style.position = "absolute";
+  pauseButton.style.right = "16px";
+  pauseButton.style.top = "110px";
+  pauseButton.style.padding = "6px 12px";
+  pauseButton.style.borderRadius = "6px";
+  pauseButton.style.border = "none";
+  pauseButton.style.background = "rgba(255, 150, 100, 0.9)";
+  pauseButton.style.color = "#fff";
+  pauseButton.style.fontWeight = "600";
+  pauseButton.style.fontSize = "12px";
+  pauseButton.style.cursor = "pointer";
+  pauseButton.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+  pauseButton.style.pointerEvents = "auto";
+  pauseButton.onclick = () => {
+    showPauseMenu();
+    if (onPauseCallback) onPauseCallback();
+  };
+  root.appendChild(pauseButton);
+
+  // Start menu
+  startMenu = document.createElement("div");
+  startMenu.style.position = "fixed";
+  startMenu.style.left = "0";
+  startMenu.style.top = "0";
+  startMenu.style.width = "100%";
+  startMenu.style.height = "100%";
+  startMenu.style.background = "rgba(0, 0, 0, 0.85)";
+  startMenu.style.display = "flex";
+  startMenu.style.flexDirection = "column";
+  startMenu.style.alignItems = "center";
+  startMenu.style.justifyContent = "center";
+  startMenu.style.gap = "20px";
+  startMenu.style.zIndex = "1000";
+  startMenu.style.pointerEvents = "auto";
+  startMenu.innerHTML = `
+    <h1 style="color: #fff; font-size: 48px; margin: 0; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">Just a Little World</h1>
+    <p style="color: #ccc; font-size: 18px; margin: 0;">A skateboarding adventure</p>
+    <button id="start-btn" style="
+      padding: 14px 32px;
+      font-size: 18px;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    ">Start Game</button>
+    <p style="color: #888; font-size: 14px; margin-top: 20px;">Press ESC to pause during gameplay</p>
+  `;
+  document.body.appendChild(startMenu);
+
+  const startBtn = startMenu.querySelector("#start-btn") as HTMLButtonElement;
+  startBtn.onmouseenter = () => {
+    startBtn.style.transform = "scale(1.05)";
+    startBtn.style.boxShadow = "0 6px 20px rgba(0,0,0,0.4)";
+  };
+  startBtn.onmouseleave = () => {
+    startBtn.style.transform = "scale(1)";
+    startBtn.style.boxShadow = "0 4px 16px rgba(0,0,0,0.3)";
+  };
+  startBtn.onclick = () => {
+    hideStartMenu();
+    if (onStartCallback) onStartCallback();
+  };
+
+  // Pause menu
+  pauseMenu = document.createElement("div");
+  pauseMenu.style.position = "fixed";
+  pauseMenu.style.left = "0";
+  pauseMenu.style.top = "0";
+  pauseMenu.style.width = "100%";
+  pauseMenu.style.height = "100%";
+  pauseMenu.style.background = "rgba(0, 0, 0, 0.85)";
+  pauseMenu.style.display = "none";
+  pauseMenu.style.flexDirection = "column";
+  pauseMenu.style.alignItems = "center";
+  pauseMenu.style.justifyContent = "center";
+  pauseMenu.style.gap = "20px";
+  pauseMenu.style.zIndex = "1000";
+  pauseMenu.style.pointerEvents = "auto";
+  pauseMenu.innerHTML = `
+    <h1 style="color: #fff; font-size: 42px; margin: 0; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">Paused</h1>
+    <button id="resume-btn" style="
+      padding: 14px 32px;
+      font-size: 18px;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    ">Resume</button>
+    <p style="color: #888; font-size: 14px;">Press ESC to resume</p>
+  `;
+  document.body.appendChild(pauseMenu);
+
+  const resumeBtn = pauseMenu.querySelector("#resume-btn") as HTMLButtonElement;
+  resumeBtn.onmouseenter = () => {
+    resumeBtn.style.transform = "scale(1.05)";
+    resumeBtn.style.boxShadow = "0 6px 20px rgba(0,0,0,0.4)";
+  };
+  resumeBtn.onmouseleave = () => {
+    resumeBtn.style.transform = "scale(1)";
+    resumeBtn.style.boxShadow = "0 4px 16px rgba(0,0,0,0.3)";
+  };
+  resumeBtn.onclick = () => {
+    hidePauseMenu();
+    if (onResumeCallback) onResumeCallback();
+  };
+
   window.addEventListener("keydown", (e) => {
     if (e.code === "Tab") {
       e.preventDefault();
       controlsVisible = !controlsVisible;
       controlsCard!.style.display = controlsVisible ? "block" : "none";
+    }
+    if (e.code === "Escape") {
+      e.preventDefault();
+      if (pauseMenu && pauseMenu.style.display === "flex") {
+        hidePauseMenu();
+        if (onResumeCallback) onResumeCallback();
+      } else if (startMenu && startMenu.style.display === "flex") {
+        // Do nothing, already on start menu
+      } else {
+        showPauseMenu();
+        if (onPauseCallback) onPauseCallback();
+      }
     }
   });
 }
@@ -195,6 +352,42 @@ export function setTimer(secondsRemaining: number): void {
   const sec = s % 60;
   const ss = sec < 10 ? `0${sec}` : `${sec}`;
   timerEl.textContent = `${m}:${ss}`;
+}
+
+export function showStartMenu(): void {
+  if (startMenu) {
+    startMenu.style.display = "flex";
+  }
+}
+
+export function hideStartMenu(): void {
+  if (startMenu) {
+    startMenu.style.display = "none";
+  }
+}
+
+export function showPauseMenu(): void {
+  if (pauseMenu) {
+    pauseMenu.style.display = "flex";
+  }
+}
+
+export function hidePauseMenu(): void {
+  if (pauseMenu) {
+    pauseMenu.style.display = "none";
+  }
+}
+
+export function setOnStart(callback: () => void): void {
+  onStartCallback = callback;
+}
+
+export function setOnResume(callback: () => void): void {
+  onResumeCallback = callback;
+}
+
+export function setOnPause(callback: () => void): void {
+  onPauseCallback = callback;
 }
 
 

@@ -11,7 +11,7 @@ function getCanvas(): HTMLCanvasElement {
 async function bootstrap(): Promise<void> {
   const canvas = getCanvas();
   const engine = createEngine(canvas);
-  const { scene, update } = createGameScene(engine);
+  const { scene, update, isPaused, isStarted } = createGameScene(engine);
 
   // Render loop
   let lastTime = performance.now();
@@ -20,7 +20,11 @@ async function bootstrap(): Promise<void> {
     const deltaSeconds = (now - lastTime) / 1000;
     lastTime = now;
 
-    update(deltaSeconds);
+    // Only update game logic if started and not paused
+    if (isStarted() && !isPaused()) {
+      update(deltaSeconds);
+    }
+    // Always render the scene (so we can see the game world even when paused)
     scene.render();
   });
 

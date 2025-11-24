@@ -12,7 +12,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { buildPark } from "./park";
 import { SkaterController } from "./skater";
 import { createSkateCamera } from "./camera";
-import { initUI, showTrickPopup, setLocationLabel, setScore, setHighScore, setTimer } from "./ui";
+import { initUI, showTrickPopup, setLocationLabel, setScore, setHighScore, setTimer, showStartMenu, hideStartMenu, showPauseMenu, hidePauseMenu, setOnStart, setOnResume, setOnPause } from "./ui";
 import { StorySpot, STORY_SPOTS } from "./stories";
 
 export function createEngine(canvas: HTMLCanvasElement): Engine {
@@ -25,6 +25,8 @@ export function createGameScene(engine: Engine): {
   scene: Scene;
   skater: SkaterController;
   update: (dt: number) => void;
+  isPaused: () => boolean;
+  isStarted: () => boolean;
 } {
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.8, 0.93, 1.0, 1.0);
@@ -86,7 +88,32 @@ export function createGameScene(engine: Engine): {
   const collectRadiusSq = collectRadius * collectRadius;
   const collected = new Set<string>();
 
+  // Game state
+  let isPaused = false;
+  let isStarted = false;
+
+  // Setup start menu
+  showStartMenu();
+  setOnStart(() => {
+    isStarted = true;
+    hideStartMenu();
+  });
+
+  // Setup pause menu
+  setOnPause(() => {
+    isPaused = true;
+  });
+  setOnResume(() => {
+    isPaused = false;
+    hidePauseMenu();
+  });
+
   function update(dt: number): void {
+    // Don't update if not started or paused
+    if (!isStarted || isPaused) {
+      return;
+    }
+
     skater.update(dt);
     camController.update(dt);
     // Timer
@@ -109,7 +136,13 @@ export function createGameScene(engine: Engine): {
     }
   }
 
-  return { scene, skater, update };
+  return { 
+    scene, 
+    skater, 
+    update,
+    isPaused: () => isPaused,
+    isStarted: () => isStarted
+  };
 }
 
 
