@@ -135,7 +135,7 @@ export function initUI(): void {
   controlsCard.style.display = "block";
   controlsVisible = true;
   controlsCard.innerHTML =
-    "W/S: Accelerate / Brake<br/>A/D: Turn<br/>Shift: Push<br/>Space: Jump / Pop<br/>Q/E: Grab / Spin<br/>F: Kickflip<br/>Grind: Approach rail and land on it";
+    "Movement: Arrows or I/J/K/L<br/>Accelerate: Up / I<br/>Brake: Down / K<br/>Turn: Left/Right or J/L<br/>Push: Shift<br/>Jump/Pop: Space<br/><br/>Tricks (WASD):<br/>W/E: Spin<br/>A/Q: Grab<br/>D/F: Kickflip<br/>S: Shove-it<br/>Grind: Land on a rail";
   root.appendChild(controlsCard);
 
   window.addEventListener("keydown", (e) => {

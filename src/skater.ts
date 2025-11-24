@@ -15,9 +15,10 @@ type InputState = {
   right: boolean;
   jump: boolean;
   push: boolean;   // Shift
-  trickSpin: boolean; // E
-  trickGrab: boolean; // Q
-  trickFlip: boolean; // F
+  trickSpin: boolean; // W or E
+  trickGrab: boolean; // A or Q
+  trickFlip: boolean; // D or F
+  trickShove: boolean; // S
 };
 
 type SkaterOptions = {
@@ -46,7 +47,7 @@ export class SkaterController {
   private readonly BASE_FOOT_HEIGHT = 0.9;
 
   private input: InputState = {
-    forward: false, backward: false, left: false, right: false, jump: false, push: false, trickSpin: false, trickGrab: false, trickFlip: false
+    forward: false, backward: false, left: false, right: false, jump: false, push: false, trickSpin: false, trickGrab: false, trickFlip: false, trickShove: false
   };
 
   private trickSpinTime = 0;
@@ -95,30 +96,58 @@ export class SkaterController {
   private bindInput(): void {
     const onKeyDown = (e: KeyboardEvent) => {
       switch (e.code) {
-        case "KeyW": this.input.forward = true; break;
-        case "KeyS": this.input.backward = true; break;
-        case "KeyA": this.input.left = true; break;
-        case "KeyD": this.input.right = true; break;
+        // Movement: Arrows & IJKL
+        case "ArrowUp":
+        case "KeyI": this.input.forward = true; break;
+        case "ArrowDown":
+        case "KeyK": this.input.backward = true; break;
+        case "ArrowLeft":
+        case "KeyJ": this.input.left = true; break;
+        case "ArrowRight":
+        case "KeyL": this.input.right = true; break;
         case "Space": this.input.jump = true; break;
         case "ShiftLeft":
         case "ShiftRight": this.input.push = true; break;
+        // Tricks: WASD + legacy QE/F
+        case "KeyW":
         case "KeyE": this.input.trickSpin = true; break;
+        case "KeyA":
         case "KeyQ": this.input.trickGrab = true; break;
+        case "KeyD":
         case "KeyF": this.input.trickFlip = true; break;
+        case "KeyS": this.input.trickShove = true; break;
+        case "KeyR":
+          // Quick recover upright
+          this.skaterMesh.rotation.x = 0;
+          this.skaterMesh.rotation.z = 0;
+          if (this.boardMesh) {
+            this.boardMesh.rotation.x = 0;
+            this.boardMesh.rotation.z = this.boardBaseRotZ;
+            this.boardMesh.position.y = this.boardBasePosY;
+          }
+          break;
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       switch (e.code) {
-        case "KeyW": this.input.forward = false; break;
-        case "KeyS": this.input.backward = false; break;
-        case "KeyA": this.input.left = false; break;
-        case "KeyD": this.input.right = false; break;
+        case "ArrowUp":
+        case "KeyI": this.input.forward = false; break;
+        case "ArrowDown":
+        case "KeyK": this.input.backward = false; break;
+        case "ArrowLeft":
+        case "KeyJ": this.input.left = false; break;
+        case "ArrowRight":
+        case "KeyL": this.input.right = false; break;
         case "Space": this.input.jump = false; break;
         case "ShiftLeft":
         case "ShiftRight": this.input.push = false; break;
+        case "KeyW":
         case "KeyE": this.input.trickSpin = false; break;
+        case "KeyA":
         case "KeyQ": this.input.trickGrab = false; break;
+        case "KeyD":
         case "KeyF": this.input.trickFlip = false; break;
+        case "KeyS": this.input.trickShove = false; break;
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -237,6 +266,11 @@ export class SkaterController {
     this.skaterMesh.position.x += this.velocity.x * dt;
     this.skaterMesh.position.z += this.velocity.z * dt;
     this.skaterMesh.position.y += this.velocity.y * dt;
+    // Keep root upright to avoid upside-down posture from any accidental torques
+    if (this.skaterMesh.rotation) {
+      this.skaterMesh.rotation.x *= 0.6;
+      this.skaterMesh.rotation.z *= 0.6;
+    }
 
     // Grounding and slope interaction or capture grind if eligible
     if (!this.isGrinding) {
@@ -466,6 +500,14 @@ export class SkaterController {
         this.isFlipping = true;
         this.trickFlipTime = 0;
         this.kickflipMarked = true;
+      }
+      // Shove-it (board spins around Y axis 180-360 while airborne)
+      if (this.input.trickShove && this.boardMesh) {
+        const shoveSpeed = Math.PI * 4; // 720 deg/sec possible
+        this.boardMesh.rotation.y += shoveSpeed * dt;
+      } else if (this.boardMesh) {
+        // ease back toward base Y rotation when not shoving
+        this.boardMesh.rotation.y *= 0.9;
       }
       if (this.isFlipping && this.boardMesh) {
         this.trickFlipTime += dt;

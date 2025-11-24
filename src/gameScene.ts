@@ -32,11 +32,13 @@ export function createGameScene(engine: Engine): {
 
   // Lights: soft ambient + one sunny directional
   const hemi = new HemisphericLight("hemi", new Vector3(0, 1, 0), scene);
-  hemi.intensity = 0.7;
-  hemi.groundColor = new Color3(0.95, 0.95, 1.0);
+  hemi.intensity = 0.55;
+  hemi.groundColor = new Color3(0.9, 0.8, 0.85);
 
-  const sun = new DirectionalLight("sun", new Vector3(-0.5, -1, -0.35).normalize(), scene);
-  sun.intensity = 1.1;
+  const sun = new DirectionalLight("sun", new Vector3(-0.3, -1, -0.2).normalize(), scene);
+  sun.intensity = 1.0;
+  sun.diffuse = new Color3(1.0, 0.86, 0.6);
+  sun.specular = new Color3(1.0, 0.8, 0.5);
 
   // Optional shadows for extra depth; only applied to meshes we add to render list
   const shadowGenerator = new ShadowGenerator(2048, sun);

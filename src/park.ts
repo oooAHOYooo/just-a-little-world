@@ -11,6 +11,76 @@ export function buildPark(scene: Scene): { root: TransformNode; shadowCasters: M
   const root = new TransformNode("parkRoot", scene);
   const shadowCasters: Mesh[] = [];
 
+  // Optional grid import from admin
+  try {
+    const raw = localStorage.getItem("skate-level-grid");
+    if (raw) {
+      const obj = JSON.parse(raw) as { w: number; h: number; grid: string[][] };
+      if (obj?.grid) {
+        // Simple interpreter: draw sidewalk where 'sidewalk', road where 'road'
+        const cell = 2.0;
+        const startX = -obj.w * cell * 0.5;
+        const startZ = -obj.h * cell * 0.5;
+        const mats: Record<string, any> = {};
+        function mat(name: string, color: Color3) {
+          if (!mats[name]) {
+            const m = new StandardMaterial(name, scene);
+            m.diffuseColor = color;
+            m.specularColor = new Color3(0.05, 0.05, 0.05);
+            mats[name] = m;
+          }
+          return mats[name];
+        }
+        for (let y = 0; y < obj.h; y++) {
+          for (let x = 0; x < obj.w; x++) {
+            const t = obj.grid[y][x];
+            const px = startX + x * cell + cell * 0.5;
+            const pz = startZ + y * cell + cell * 0.5;
+            if (t === "road") {
+              const b = MeshBuilder.CreateGround(`g_r_${x}_${y}`, { width: cell, height: cell }, scene);
+              b.position.set(px, 0, pz);
+              b.material = mat("mRoad", new Color3(0.15, 0.15, 0.16));
+              (b as any).metadata = { isGround: true };
+              b.setParent(root);
+            } else if (t === "sidewalk") {
+              const b = MeshBuilder.CreateBox(`g_s_${x}_${y}`, { width: cell, depth: cell, height: 0.2 }, scene);
+              b.position.set(px, 0.1, pz);
+              b.material = mat("mSidewalk", new Color3(0.7, 0.72, 0.74));
+              (b as any).metadata = { isGround: true };
+              b.setParent(root);
+            } else if (t === "ledge") {
+              const b = MeshBuilder.CreateBox(`g_l_${x}_${y}`, { width: cell * 0.9, depth: cell * 0.5, height: 0.5 }, scene);
+              b.position.set(px, 0.25, pz);
+              b.material = mat("mLedge", new Color3(0.6, 0.62, 0.66));
+              (b as any).metadata = { isGround: true };
+              b.setParent(root);
+              shadowCasters.push(b);
+            } else if (t === "rail") {
+              const r = MeshBuilder.CreateCylinder(`g_rr_${x}_${y}`, { diameter: 0.12, height: cell, tessellation: 12 }, scene);
+              r.position.set(px, 0.5, pz);
+              r.rotation.x = Math.PI / 2;
+              const railMat = new StandardMaterial("mRail", scene);
+              railMat.diffuseColor = new Color3(0.85, 0.85, 0.9);
+              railMat.specularColor = new Color3(0.4, 0.4, 0.45);
+              r.material = railMat;
+              r.setParent(root);
+              (r as any).metadata = {
+                isGround: true,
+                isRail: true,
+                start: new Vector3(px, 0.5, pz - cell * 0.5),
+                end: new Vector3(px, 0.5, pz + cell * 0.5),
+                radius: 0.06
+              };
+              shadowCasters.push(r as Mesh);
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore invalid admin grids
+  }
+
   // Materials
   const asphalt = new PBRMaterial("asphalt", scene);
   asphalt.roughness = 0.95;
