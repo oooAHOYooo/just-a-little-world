@@ -82,6 +82,8 @@ export class SkaterController {
 
   private onTrick?: (name: string, points: number) => void;
 
+  private pushPhase = 0; // 0..inf
+
   constructor(scene: Scene, opts?: SkaterOptions) {
     this.scene = scene;
     this.onTrick = opts?.onTrickLanded;
@@ -267,10 +269,8 @@ export class SkaterController {
     this.skaterMesh.position.z += this.velocity.z * dt;
     this.skaterMesh.position.y += this.velocity.y * dt;
     // Keep root upright to avoid upside-down posture from any accidental torques
-    if (this.skaterMesh.rotation) {
-      this.skaterMesh.rotation.x *= 0.6;
-      this.skaterMesh.rotation.z *= 0.6;
-    }
+    this.skaterMesh.rotation.x = 0;
+    this.skaterMesh.rotation.z = 0;
 
     // Grounding and slope interaction or capture grind if eligible
     if (!this.isGrinding) {
@@ -290,7 +290,13 @@ export class SkaterController {
     // decay crouch quickly after jump
     const rate = this.grounded ? 4.0 : 8.0;
     this.crouch += (targetCrouch - this.crouch) * Math.min(1, rate * dt);
-    this.applyFallbackPose();
+    // Push animation when pushing at low speed
+    if (this.grounded && this.input.push && moving) {
+      this.pushPhase += dt * 6.0;
+    } else {
+      this.pushPhase += dt * 2.0;
+    }
+    this.applyFallbackPose(dt);
     // Landing detection → score tricks
     if (this.prevGrounded === false && this.grounded === true) {
       let points = 0;
@@ -550,8 +556,8 @@ export class SkaterController {
   }
 
   // ------- Fallback 2020-style low-poly skater -------
-  private makeBlock(color: Color3, size: { w: number; h: number; d: number }, offset: Vector3, parent: Mesh): Mesh {
-    const m = MeshBuilder.CreateBox("part", { width: size.w, height: size.h, depth: size.d }, this.scene);
+  private makeCapsulePart(color: Color3, height: number, radius: number, offset: Vector3, parent: Mesh): Mesh {
+    const m = MeshBuilder.CreateCapsule("part", { height, radius, tessellation: 12 }, this.scene);
     const mat = new StandardMaterial("partMat", this.scene);
     mat.diffuseColor = color;
     mat.specularColor = new Color3(0.05, 0.05, 0.05);
@@ -569,19 +575,18 @@ export class SkaterController {
     root.rotationQuaternion = null;
     root.receiveShadows = true;
 
-    const grey = new Color3(0.85, 0.88, 0.92);
-    // Torso
-    this.partTorso = this.makeBlock(grey, { w: 0.45, h: 0.55, d: 0.25 }, new Vector3(0, 0.3, 0), root);
-    // Hips
-    const hips = this.makeBlock(grey, { w: 0.4, h: 0.25, d: 0.22 }, new Vector3(0, 0.05, 0), root);
+    const grey = new Color3(0.9, 0.9, 0.95);
+    // Torso and hips
+    this.partTorso = this.makeCapsulePart(grey, 0.6, 0.18, new Vector3(0, 0.35, 0), root);
+    const hips = this.makeCapsulePart(grey, 0.28, 0.2, new Vector3(0, 0.05, 0), root);
     // Head
-    this.partHead = this.makeBlock(grey, { w: 0.22, h: 0.22, d: 0.22 }, new Vector3(0, 0.67, 0), root);
+    this.partHead = this.makeCapsulePart(grey, 0.22, 0.12, new Vector3(0, 0.72, 0), root);
     // Arms
-    this.partArmL = this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(-0.32, 0.25, 0), root);
-    this.partArmR = this.makeBlock(grey, { w: 0.14, h: 0.45, d: 0.14 }, new Vector3(0.32, 0.25, 0), root);
-    // Legs
-    this.partLegL = this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(-0.16, -0.25, -0.06), root);
-    this.partLegR = this.makeBlock(grey, { w: 0.18, h: 0.55, d: 0.18 }, new Vector3(0.16, -0.25, 0.06), root);
+    this.partArmL = this.makeCapsulePart(grey, 0.48, 0.09, new Vector3(-0.32, 0.30, 0), root);
+    this.partArmR = this.makeCapsulePart(grey, 0.48, 0.09, new Vector3(0.32, 0.30, 0), root);
+    // Legs (staggered for a skate stance)
+    this.partLegL = this.makeCapsulePart(grey, 0.58, 0.11, new Vector3(-0.16, -0.25, -0.06), root);
+    this.partLegR = this.makeCapsulePart(grey, 0.58, 0.11, new Vector3(0.16, -0.25, 0.06), root);
 
     // Board
     const board = MeshBuilder.CreateBox("board", { width: 0.28, depth: 1.0, height: 0.06 }, scene);
@@ -596,7 +601,7 @@ export class SkaterController {
     return root;
   }
 
-  private applyFallbackPose(): void {
+  private applyFallbackPose(_dt: number): void {
     if (!this.partTorso || !this.partLegL || !this.partLegR || !this.partArmL || !this.partArmR) return;
     // Torso slight forward lean while moving/crouched
     const lean = -0.15 * this.crouch;
@@ -612,6 +617,12 @@ export class SkaterController {
     this.partArmR.rotation = this.partArmR.rotation || new Vector3();
     this.partArmL.rotation.z = armAngle;
     this.partArmR.rotation.z = -armAngle;
+    // Push cycle (rear leg swings) – assume right-foot forward stance
+    const swing = Math.sin(this.pushPhase) * (this.input.push ? 0.5 : 0.2);
+    this.partLegR.rotation = this.partLegR.rotation || new Vector3();
+    this.partLegR.rotation.x = swing;
+    this.partLegL.rotation = this.partLegL.rotation || new Vector3();
+    this.partLegL.rotation.x = -swing * 0.15;
   }
 }
 
