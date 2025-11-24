@@ -44,6 +44,9 @@ export function createSkateCamera(
   const yawSensitivity = 0.0035;
   const pitchSensitivity = 0.0030;
   const pitchClamp = 0.5;
+  // Track a smoothed heading from skater motion for smart rotation
+  let headingYaw = 0; // radians
+  const headingSnapSpeed = 6.0; // how fast the camera aligns to heading
   const canvas = scene.getEngine().getRenderingCanvas() || undefined;
   if (canvas) {
     canvas.oncontextmenu = (e) => { e.preventDefault(); };
@@ -73,21 +76,17 @@ export function createSkateCamera(
   function computeDesired(): void {
     const pos = skater.getPosition();
     const vel = skater.getVelocity();
-    // Forward from velocity, fallback to +Z back
-    let fx = vel.x, fz = vel.z;
-    const len = Math.hypot(fx, fz);
-    if (len < 0.001) {
-      fx = 0; fz = -1;
-    } else {
-      fx /= len; fz /= len;
+    // Derive a heading yaw from velocity if moving; otherwise keep last
+    const speed = Math.hypot(vel.x, vel.z);
+    if (speed > 0.25) {
+      const targetYaw = Math.atan2(vel.x, -vel.z); // -Z forward convention
+      const delta = ((targetYaw - headingYaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+      headingYaw += delta * 0.2; // ease toward target
     }
-    // Apply user yaw (right-stick) rotation around Y
-    if (userYaw !== 0) {
-      const c = Math.cos(userYaw), s = Math.sin(userYaw);
-      const nfx = fx * c - fz * s;
-      const nfz = fx * s + fz * c;
-      fx = nfx; fz = nfz;
-    }
+    // Final yaw = smoothed heading + right-stick offset
+    const yaw = headingYaw + userYaw;
+    const fx = Math.sin(yaw);
+    const fz = -Math.cos(yaw);
     // Right vector on XZ
     const rx = fz;
     const rz = -fx;
@@ -123,6 +122,7 @@ export function createSkateCamera(
   }
 
   let firstUpdate = true;
+  const aimVec = new Vector3();
   function update(dt: number): void {
     computeDesired();
     resolveObstruction();
@@ -134,7 +134,7 @@ export function createSkateCamera(
     firstUpdate = false;
 
     // Aim
-    const aim = scene.activeCamera!.getTarget();
+    const aim = aimVec;
     const ta = expSmoothingFactor(aimStiffness, dt);
     aim.x += (currentTarget.x - aim.x) * ta;
     aim.y += (currentTarget.y - aim.y) * ta;

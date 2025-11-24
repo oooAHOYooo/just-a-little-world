@@ -326,13 +326,21 @@ export class SkaterController {
   }
 
   private ensureUpright(): void {
+    // Make sure we are using Euler rotations
     if (this.skaterMesh.rotationQuaternion) this.skaterMesh.rotationQuaternion = null;
-    this.skaterMesh.rotation.x = 0;
-    this.skaterMesh.rotation.z = 0;
+    // Lock pitch/roll to zero; keep yaw intact
+    const yaw = this.skaterMesh.rotation.y || 0;
+    this.skaterMesh.rotation.set(0, yaw, 0);
+    // Prevent negative scale flipping
     if (this.skaterMesh.scaling.y < 0) this.skaterMesh.scaling.y = Math.abs(this.skaterMesh.scaling.y);
+    // Keep the board mostly flat; ease back each frame to prevent accumulated tilt
     if (this.boardMesh) {
-      this.boardMesh.rotation.x = Math.max(-0.35, Math.min(0.35, this.boardMesh.rotation.x || 0));
-      this.boardMesh.rotation.z = Math.max(-0.35, Math.min(0.35, this.boardMesh.rotation.z || 0));
+      this.boardMesh.rotation.x += (0 - (this.boardMesh.rotation.x || 0)) * 0.2;
+      this.boardMesh.rotation.z += (0 - (this.boardMesh.rotation.z || 0)) * 0.2;
+      // Keep board local Y rotation small when grounded to avoid upside-down optics
+      if (this.grounded) {
+        this.boardMesh.rotation.y *= 0.9;
+      }
     }
   }
 
