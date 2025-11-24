@@ -269,8 +269,7 @@ export class SkaterController {
     this.skaterMesh.position.z += this.velocity.z * dt;
     this.skaterMesh.position.y += this.velocity.y * dt;
     // Keep root upright to avoid upside-down posture from any accidental torques
-    this.skaterMesh.rotation.x = 0;
-    this.skaterMesh.rotation.z = 0;
+    this.ensureUpright();
 
     // Grounding and slope interaction or capture grind if eligible
     if (!this.isGrinding) {
@@ -326,11 +325,21 @@ export class SkaterController {
     this.prevGrounded = this.grounded;
   }
 
+  private ensureUpright(): void {
+    if (this.skaterMesh.rotationQuaternion) this.skaterMesh.rotationQuaternion = null;
+    this.skaterMesh.rotation.x = 0;
+    this.skaterMesh.rotation.z = 0;
+    if (this.skaterMesh.scaling.y < 0) this.skaterMesh.scaling.y = Math.abs(this.skaterMesh.scaling.y);
+    if (this.boardMesh) {
+      this.boardMesh.rotation.x = Math.max(-0.35, Math.min(0.35, this.boardMesh.rotation.x || 0));
+      this.boardMesh.rotation.z = Math.max(-0.35, Math.min(0.35, this.boardMesh.rotation.z || 0));
+    }
+  }
+
   private clampToWorldBounds(): void {
-    // Park dimensions: road width 30, sidewalks extend to +/-12, buildings at +/-18.
-    // Keep player roughly inside sidewalks and a bit of buffer.
-    const minX = -14.0, maxX = 14.0;
-    const minZ = -29.0, maxZ = 29.0;
+    // Expanded park bounds to match larger skatepark pad
+    const minX = -38.0, maxX = 38.0;
+    const minZ = -70.0, maxZ = 70.0;
     const p = this.skaterMesh.position;
     if (p.x < minX) { p.x = minX; if (this.velocity.x < 0) this.velocity.x = 0; }
     if (p.x > maxX) { p.x = maxX; if (this.velocity.x > 0) this.velocity.x = 0; }
@@ -582,11 +591,11 @@ export class SkaterController {
     // Head
     this.partHead = this.makeCapsulePart(grey, 0.22, 0.12, new Vector3(0, 0.72, 0), root);
     // Arms
-    this.partArmL = this.makeCapsulePart(grey, 0.48, 0.09, new Vector3(-0.32, 0.30, 0), root);
-    this.partArmR = this.makeCapsulePart(grey, 0.48, 0.09, new Vector3(0.32, 0.30, 0), root);
+    this.partArmL = this.makeCapsulePart(grey, 0.48, 0.09, new Vector3(-0.32, 0.30, -0.05), root);
+    this.partArmR = this.makeCapsulePart(grey, 0.48, 0.09, new Vector3(0.32, 0.30, 0.05), root);
     // Legs (staggered for a skate stance)
-    this.partLegL = this.makeCapsulePart(grey, 0.58, 0.11, new Vector3(-0.16, -0.25, -0.06), root);
-    this.partLegR = this.makeCapsulePart(grey, 0.58, 0.11, new Vector3(0.16, -0.25, 0.06), root);
+    this.partLegL = this.makeCapsulePart(grey, 0.58, 0.11, new Vector3(-0.16, -0.25, -0.10), root);
+    this.partLegR = this.makeCapsulePart(grey, 0.58, 0.11, new Vector3(0.16, -0.25, 0.12), root);
 
     // Board
     const board = MeshBuilder.CreateBox("board", { width: 0.28, depth: 1.0, height: 0.06 }, scene);
@@ -607,16 +616,20 @@ export class SkaterController {
     const lean = -0.15 * this.crouch;
     this.partTorso.rotation = this.partTorso.rotation || new Vector3();
     this.partTorso.rotation.x = lean;
+    // Torso yaw toward front foot for skate stance
+    this.partTorso.rotation.y = -0.25;
     // Legs bend via vertical offsets
     const legOffset = -0.08 * this.crouch;
     this.partLegL.position.y = -0.25 + legOffset;
     this.partLegR.position.y = -0.25 + legOffset;
-    // Arms relaxed swing toward back
-    const armAngle = 0.25 + 0.2 * this.crouch;
+    // Arms relaxed, lead forward, trail back
+    const armAngle = 0.22 + 0.18 * this.crouch;
     this.partArmL.rotation = this.partArmL.rotation || new Vector3();
     this.partArmR.rotation = this.partArmR.rotation || new Vector3();
-    this.partArmL.rotation.z = armAngle;
+    this.partArmL.rotation.z = armAngle * 0.6;
     this.partArmR.rotation.z = -armAngle;
+    this.partArmL.rotation.x = -0.1;
+    this.partArmR.rotation.x = 0.05;
     // Push cycle (rear leg swings) – assume right-foot forward stance
     const swing = Math.sin(this.pushPhase) * (this.input.push ? 0.5 : 0.2);
     this.partLegR.rotation = this.partLegR.rotation || new Vector3();
